@@ -33,6 +33,7 @@ struct ChildWidget<T> {
     params: Params,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum Axis {
     Horizontal,
     Vertical,
@@ -56,6 +57,11 @@ pub enum Alignment {
     /// In a vertical container, widgets are bottom aligned. In a horiziontal
     /// container, their trailing edges are aligned.
     End,
+    /// The widget is stretched to fill any available space on the minor axis.
+    ///
+    /// The widget will be given tight constraints equal to the size of the
+    /// container on this axis.
+    Stretch,
 }
 
 #[derive(Copy, Clone, Default)]
@@ -64,28 +70,28 @@ struct Params {
 }
 
 impl Axis {
-    fn major(&self, coords: Size) -> f64 {
-        match *self {
+    fn major(self, coords: Size) -> f64 {
+        match self {
             Axis::Horizontal => coords.width,
             Axis::Vertical => coords.height,
         }
     }
 
-    fn minor(&self, coords: Size) -> f64 {
-        match *self {
+    fn minor(self, coords: Size) -> f64 {
+        match self {
             Axis::Horizontal => coords.height,
             Axis::Vertical => coords.width,
         }
     }
 
-    fn pack(&self, major: f64, minor: f64) -> (f64, f64) {
-        match *self {
+    fn pack(self, major: f64, minor: f64) -> (f64, f64) {
+        match self {
             Axis::Horizontal => (major, minor),
             Axis::Vertical => (minor, major),
         }
     }
 
-    fn constraints(&self, bc: &BoxConstraints, min_major: f64, major: f64) -> BoxConstraints {
+    fn constraints(self, bc: &BoxConstraints, min_major: f64, major: f64) -> BoxConstraints {
         match self {
             Axis::Horizontal => BoxConstraints::new(
                 Size::new(min_major, bc.min().height),
@@ -237,7 +243,11 @@ impl<T: Data> Widget<T> for Flex<T> {
             let align_minor = self.alignment.align(extra_minor);
             let pos: Point = self.direction.pack(major, align_minor).into();
 
-            child.widget.set_layout_rect(rect.with_origin(pos));
+            let child_rect = rect.with_origin(pos);
+            let child_rect = self
+                .alignment
+                .stretch(self.direction, child_rect, extra_minor);
+            child.widget.set_layout_rect(child_rect);
             child_paint_rect = child_paint_rect.union(child.widget.paint_rect());
             major += self.direction.major(rect.size());
         }
@@ -271,9 +281,23 @@ impl Alignment {
     /// this alignment.
     fn align(self, val: f64) -> f64 {
         match self {
-            Alignment::Start => 0.0,
+            Alignment::Start | Alignment::Stretch => 0.0,
             Alignment::Center => val / 2.0,
             Alignment::End => val,
+        }
+    }
+
+    /// If this is `Alignmen::Stretch`, add `extra` to the minor axis.
+    fn stretch(self, axis: Axis, rect: Rect, extra: f64) -> Rect {
+        if let Alignment::Stretch = self {
+            let Size { width, height } = rect.size();
+            let size = match axis {
+                Axis::Vertical => Size::new(width + extra, height),
+                Axis::Horizontal => Size::new(width, height + extra),
+            };
+            rect.with_size(size)
+        } else {
+            rect
         }
     }
 }
